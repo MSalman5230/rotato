@@ -3,8 +3,9 @@ services:
     image: ghcr.io/msalman5230/rotato:latest
     container_name: rotato
     restart: unless-stopped
+    # Right-hand port must match PORT inside the mounted .env (ENV_FILE). Left-hand is the host port.
     ports:
-      - "8997:8990"
+      - "${ROTATO_PUBLISH_PORT:-8990}:${ROTATO_CONTAINER_PORT:-8990}"
     environment:
       - ENV_FILE=/app/data/.env
       # Troubleshooting only: prints full ADMIN_PASSWORD and ENV_FILE path to container logs at startup

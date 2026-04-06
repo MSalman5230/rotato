@@ -32,12 +32,22 @@ Access admin panel: `http://localhost:8990/admin`
 
 ## Docker Deployment (Persistent Admin Settings)
 
-The admin UI writes provider settings into the env file. In Docker, this project stores that env file at `ENV_FILE=/app/data/.env`, and `docker-compose.yml` mounts `/app/data` to a named volume so your settings survive container recreation/restarts.
+The image does **not** embed `PORT` or `ADMIN_PASSWORD`. Create a `.env` on the host (for example next to your compose file or on your bind mount) with at least:
 
-Run with Docker Compose:
+```env
+PORT=8990
+ADMIN_PASSWORD=your-secure-password
+```
+
+Mount it so the app sees it at `ENV_FILE` (default `/app/data/.env` inside the container). Example: map `./data` → `/app/data` and put `.env` at `./data/.env`.
+
+The admin UI writes provider settings into that same env file, so settings survive restarts as long as the volume persists.
+
+`docker-compose.yml` uses `ROTATO_CONTAINER_PORT` for the **container** side of port mapping — it must match `PORT` in the mounted `.env`. `ROTATO_PUBLISH_PORT` is the host port.
 
 ```bash
-docker compose up -d
+# Ensure /mnt/user/appdata/rotato/.env exists with PORT and ADMIN_PASSWORD before first start.
+ROTATO_PUBLISH_PORT=8997 ROTATO_CONTAINER_PORT=8990 docker compose up -d
 ```
 
 Optional: use a different image (for your fork/namespace):
@@ -45,8 +55,6 @@ Optional: use a different image (for your fork/namespace):
 ```bash
 ROTATO_IMAGE=ghcr.io/<owner>/<repo>:latest docker compose up -d
 ```
-
-The first run auto-creates `/app/data/.env` from `.env.example`. Edit values from `/admin`, and they remain persistent via the `rotato_data` volume.
 
 ## GitHub Action: Build and Push to GHCR
 
