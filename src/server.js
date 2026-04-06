@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+/** Session file next to .env so admin login survives process/container restarts (Docker volume). */
+const ADMIN_SESSION_FILENAME = '.admin_session';
+
 class ProxyServer {
   constructor(config, geminiClient = null, openaiClient = null) {
     this.config = config;
@@ -11,7 +14,6 @@ class ProxyServer {
     this.openaiClient = openaiClient;
     this.providerClients = new Map(); // Map of provider_name -> client instance
     this.server = null;
-    this.adminSessionToken = null;
     this.logBuffer = []; // Store logs in RAM only (last 100 entries)
     this.responseStorage = new Map(); // Store response data for viewing
 
@@ -694,7 +696,7 @@ class ProxyServer {
     
     // Handle logout
     if (path === '/admin/logout' && req.method === 'POST') {
-      this.adminSessionToken = null;
+      this.clearPersistedAdminSession();
       res.writeHead(200, { 
         'Content-Type': 'application/json',
         'Set-Cookie': 'adminSession=; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/admin'
@@ -739,14 +741,59 @@ class ProxyServer {
   generateSessionToken() {
     return crypto.randomBytes(32).toString('hex');
   }
+
+  getAdminSessionFilePath() {
+    const envPath = this.getEnvPath();
+    return path.join(path.dirname(envPath), ADMIN_SESSION_FILENAME);
+  }
+
+  readPersistedAdminSession() {
+    const p = this.getAdminSessionFilePath();
+    try {
+      if (!fs.existsSync(p)) return null;
+      const t = fs.readFileSync(p, 'utf8').trim();
+      return t.length > 0 ? t : null;
+    } catch {
+      return null;
+    }
+  }
+
+  persistAdminSession(token) {
+    const p = this.getAdminSessionFilePath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, token, { mode: 0o600 });
+  }
+
+  clearPersistedAdminSession() {
+    const p = this.getAdminSessionFilePath();
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  sessionTokensMatch(cookieToken, storedToken) {
+    if (!cookieToken || !storedToken) return false;
+    try {
+      const a = Buffer.from(String(cookieToken), 'utf8');
+      const b = Buffer.from(String(storedToken), 'utf8');
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  }
   
   parseCookies(cookieHeader) {
     const cookies = {};
     if (cookieHeader) {
       cookieHeader.split(';').forEach(cookie => {
-        const parts = cookie.trim().split('=');
-        if (parts.length === 2) {
-          cookies[parts[0]] = parts[1];
+        const c = cookie.trim();
+        const eq = c.indexOf('=');
+        if (eq > 0) {
+          const name = c.substring(0, eq).trim();
+          const value = c.substring(eq + 1).trim();
+          cookies[name] = value;
         }
       });
     }
@@ -755,7 +802,9 @@ class ProxyServer {
   
   isAdminAuthenticated(req) {
     const cookies = this.parseCookies(req.headers.cookie);
-    return cookies.adminSession === this.adminSessionToken && this.adminSessionToken !== null;
+    const cookieToken = cookies.adminSession;
+    const stored = this.readPersistedAdminSession();
+    return this.sessionTokensMatch(cookieToken, stored);
   }
 
   async handleAdminLogin(req, res, body) {
@@ -780,13 +829,21 @@ class ProxyServer {
         // Successful login - reset counters
         this.failedLoginAttempts = 0;
         this.loginBlockedUntil = null;
-        this.adminSessionToken = this.generateSessionToken();
+        const sessionToken = this.generateSessionToken();
+        try {
+          this.persistAdminSession(sessionToken);
+        } catch (err) {
+          console.error('[ADMIN] Failed to persist session file:', err.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Could not create admin session. Check data directory permissions.' }));
+          return;
+        }
 
         // Set session cookie (expires in 24 hours)
         const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toUTCString();
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Set-Cookie': `adminSession=${this.adminSessionToken}; HttpOnly; Expires=${expires}; Path=/admin`
+          'Set-Cookie': `adminSession=${sessionToken}; HttpOnly; Expires=${expires}; Path=/admin`
         });
         res.end(JSON.stringify({ success: true }));
       } else {
