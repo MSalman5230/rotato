@@ -12,7 +12,7 @@ class Config {
   }
 
   loadConfig() {
-    const envPath = path.join(process.cwd(), '.env');
+    const envPath = this.getEnvPath();
 
     console.log(`[CONFIG] Loading configuration from ${envPath}`);
 
@@ -96,6 +96,14 @@ class Config {
     }
 
     return envVars;
+  }
+
+  getEnvPath() {
+    const customEnvPath = process.env.ENV_FILE;
+    if (customEnvPath && customEnvPath.trim()) {
+      return path.resolve(customEnvPath.trim());
+    }
+    return path.join(process.cwd(), '.env');
   }
 
   parseApiKeys(keysString) {

@@ -820,7 +820,7 @@ class ProxyServer {
   
   async handleGetEnvVars(res) {
     try {
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = this.getEnvPath();
       const envContent = fs.readFileSync(envPath, 'utf8');
       const envVars = this.config.parseEnvFile(envContent);
 
@@ -836,7 +836,7 @@ class ProxyServer {
 
   async handleGetEnvFile(res) {
     try {
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = this.getEnvPath();
       const envContent = fs.readFileSync(envPath, 'utf8');
 
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -848,7 +848,7 @@ class ProxyServer {
 
   getAdminPassword() {
     try {
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = this.getEnvPath();
       const envContent = fs.readFileSync(envPath, 'utf8');
       const envVars = this.config.parseEnvFile(envContent);
       return envVars.ADMIN_PASSWORD;
@@ -861,7 +861,7 @@ class ProxyServer {
   async handleUpdateEnvVars(res, body) {
     try {
       const envVars = JSON.parse(body);
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = this.getEnvPath();
 
       // Read current env to preserve admin password and disabled states
       const currentEnvContent = fs.readFileSync(envPath, 'utf8');
@@ -1172,7 +1172,7 @@ class ProxyServer {
         return;
       }
 
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = this.getEnvPath();
       const envContent = fs.readFileSync(envPath, 'utf8');
       const envVars = this.config.parseEnvFile(envContent);
 
@@ -1245,7 +1245,7 @@ class ProxyServer {
         return;
       }
 
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = this.getEnvPath();
       const envContent = fs.readFileSync(envPath, 'utf8');
       const envVars = this.config.parseEnvFile(envContent);
 
@@ -1287,7 +1287,7 @@ class ProxyServer {
         return;
       }
 
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = this.getEnvPath();
       const envContent = fs.readFileSync(envPath, 'utf8');
       const envVars = this.config.parseEnvFile(envContent);
 
@@ -1314,7 +1314,7 @@ class ProxyServer {
    * Write env vars back to .env file (shared helper)
    */
   writeEnvFile(envVars) {
-    const envPath = path.join(process.cwd(), '.env');
+    const envPath = this.getEnvPath();
 
     let envContent = '# API Key Rotator Configuration\n';
     envContent += `# Last updated: ${new Date().toISOString()}\n\n`;
@@ -1390,6 +1390,13 @@ class ProxyServer {
     }
 
     fs.writeFileSync(envPath, envContent);
+  }
+
+  getEnvPath() {
+    if (typeof this.config.getEnvPath === 'function') {
+      return this.config.getEnvPath();
+    }
+    return path.join(process.cwd(), '.env');
   }
 
   serveAdminPanel(res) {
