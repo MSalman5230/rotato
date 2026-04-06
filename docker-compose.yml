@@ -1,14 +1,13 @@
 services:
   rotato:
-    image: ${ROTATO_IMAGE:-ghcr.io/p32929/openai-gemini-api-key-rotator:latest}
+    image: ghcr.io/msalman5230/rotato:latest
     container_name: rotato
     restart: unless-stopped
     ports:
-      - "8990:8990"
+      - "8997:8990"
     environment:
       - ENV_FILE=/app/data/.env
     volumes:
-      - rotato_data:/app/data
+      - /mnt/user/appdata/rotato:/app/data
 
-volumes:
-  rotato_data:
+
