@@ -851,7 +851,7 @@ class ProxyServer {
       const envPath = this.getEnvPath();
       const envContent = fs.readFileSync(envPath, 'utf8');
       const envVars = this.config.parseEnvFile(envContent);
-      return envVars.ADMIN_PASSWORD;
+      return this.config.normalizeAdminPassword(envVars.ADMIN_PASSWORD);
     } catch (error) {
       return null;
     }

@@ -33,7 +33,8 @@ class Config {
       missingFields.push('PORT');
     }
 
-    if (!envVars.ADMIN_PASSWORD) {
+    const adminPassword = this.normalizeAdminPassword(envVars.ADMIN_PASSWORD);
+    if (!adminPassword) {
       missingFields.push('ADMIN_PASSWORD');
     }
 
@@ -48,11 +49,17 @@ class Config {
     }
 
     // Set required fields
-    this.port = parseInt(envVars.PORT);
-    this.adminPassword = envVars.ADMIN_PASSWORD;
+    this.port = parseInt(String(envVars.PORT).trim(), 10);
+    this.adminPassword = adminPassword;
 
     console.log(`[CONFIG] Port: ${this.port}`);
     console.log(`[CONFIG] Admin panel enabled with password authentication`);
+
+    if (this.isDebugAdminPasswordEnabled()) {
+      console.log(`[DEBUG] ENV_FILE in use: ${envPath}`);
+      console.log(`[DEBUG] ADMIN_PASSWORD in use (full): ${this.adminPassword}`);
+      console.warn('[DEBUG] Unset DEBUG_LOG_ADMIN_PASSWORD after troubleshooting (this leaks your admin password in logs).');
+    }
 
     // Clear existing providers
     this.providers.clear();
@@ -104,6 +111,28 @@ class Config {
       return path.resolve(customEnvPath.trim());
     }
     return path.join(process.cwd(), '.env');
+  }
+
+  /**
+   * Trim and strip optional surrounding quotes (common in .env files).
+   * Prevents login mismatches when Docker or editors add whitespace/newlines.
+   */
+  normalizeAdminPassword(value) {
+    if (value === undefined || value === null) return '';
+    let s = String(value).trim();
+    if (s.length >= 2) {
+      const open = s[0];
+      const close = s[s.length - 1];
+      if ((open === '"' && close === '"') || (open === "'" && close === "'")) {
+        s = s.slice(1, -1);
+      }
+    }
+    return s;
+  }
+
+  isDebugAdminPasswordEnabled() {
+    const v = process.env.DEBUG_LOG_ADMIN_PASSWORD;
+    return v === '1' || String(v).toLowerCase() === 'true' || String(v).toLowerCase() === 'yes';
   }
 
   parseApiKeys(keysString) {
