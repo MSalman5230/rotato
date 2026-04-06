@@ -35,9 +35,45 @@ Access admin panel: `http://localhost:8990/admin`
 ```env
 PORT=8990
 ADMIN_PASSWORD=your-secure-password
+# Optional: store admin-managed settings in a custom file path
+# CONFIG_PATH=/data/.env
 ```
 
 Visit http://localhost:8990/admin to configure your providers and start using the API.
+
+## Docker
+
+Build locally:
+
+```bash
+docker build -t rotato .
+```
+
+Run with persistent admin settings:
+
+```bash
+docker run -d \
+  --name rotato \
+  -p 8990:8990 \
+  -e PORT=8990 \
+  -e ADMIN_PASSWORD=your-secure-password \
+  -e CONFIG_PATH=/data/.env \
+  -v $(pwd)/data:/data \
+  rotato
+```
+
+With `CONFIG_PATH=/data/.env`, the app boots from container environment variables on first run, then saves admin UI changes into the mounted `data` volume so they survive container restarts and upgrades.
+
+## GitHub Container Registry
+
+On every push to the `master` branch, GitHub Actions builds the Docker image and publishes it to:
+
+```text
+ghcr.io/<owner>/<repo>:latest
+ghcr.io/<owner>/<repo>:sha-<commit>
+```
+
+The workflow file lives at `.github/workflows/publish-ghcr.yml`.
 
 ## API Usage Examples
 

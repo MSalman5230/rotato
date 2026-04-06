@@ -8,25 +8,69 @@ class Config {
     this.geminiApiKeys = [];
     this.openaiApiKeys = [];
     this.baseUrl = null;
+    this.configPath = this.resolveConfigPath();
+    this.currentEnvVars = {};
     this.loadConfig();
   }
 
+  resolveConfigPath() {
+    const customPath = process.env.CONFIG_PATH && process.env.CONFIG_PATH.trim();
+    return customPath ? path.resolve(customPath) : path.join(process.cwd(), '.env');
+  }
+
+  getConfigPath() {
+    return this.configPath;
+  }
+
+  hasConfigFile() {
+    return fs.existsSync(this.configPath);
+  }
+
+  getBootstrapEnvVars() {
+    const envVars = {};
+    const exactKeys = new Set(['PORT', 'ADMIN_PASSWORD', 'BASE_URL']);
+    const suffixes = ['_API_KEYS', '_BASE_URL', '_ACCESS_KEY', '_DEFAULT_MODEL', '_MODEL_HISTORY', '_DISABLED'];
+
+    for (const [key, value] of Object.entries(process.env)) {
+      if (!value) {
+        continue;
+      }
+
+      if (exactKeys.has(key) || suffixes.some(suffix => key.endsWith(suffix))) {
+        envVars[key] = value;
+      }
+    }
+
+    return envVars;
+  }
+
+  getEffectiveEnvVars() {
+    const fileEnvVars = this.hasConfigFile()
+      ? this.parseEnvFile(fs.readFileSync(this.configPath, 'utf8'))
+      : {};
+
+    return {
+      ...this.getBootstrapEnvVars(),
+      ...fileEnvVars
+    };
+  }
+
+  getEnvVars() {
+    return { ...this.currentEnvVars };
+  }
+
   loadConfig() {
-    const envPath = path.join(process.cwd(), '.env');
+    const envPath = this.configPath;
 
     console.log(`[CONFIG] Loading configuration from ${envPath}`);
 
-    if (!fs.existsSync(envPath)) {
-      console.error('\n❌ ERROR: .env file not found!');
-      console.error('Please create a .env file with the required configuration.');
-      console.error('You can copy .env.example to .env and update the values.\n');
-      throw new Error('.env file not found');
+    if (!this.hasConfigFile()) {
+      console.log('[CONFIG] Config file not found, falling back to runtime environment variables');
     }
 
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const envVars = this.parseEnvFile(envContent);
+    const envVars = this.getEffectiveEnvVars();
+    this.currentEnvVars = { ...envVars };
 
-    // Check required fields FIRST
     const missingFields = [];
 
     if (!envVars.PORT) {
@@ -38,8 +82,9 @@ class Config {
     }
 
     if (missingFields.length > 0) {
-      console.error('\n❌ ERROR: Required fields missing in .env file!');
+      console.error('\n[CONFIG] ERROR: Required fields missing in configuration');
       console.error(`Missing fields: ${missingFields.join(', ')}`);
+      console.error(`Config file path: ${envPath}`);
       console.error('\nBoth PORT and ADMIN_PASSWORD are required to run the server.');
       console.error('Example configuration:');
       console.error('  PORT=8990');
@@ -47,26 +92,22 @@ class Config {
       throw new Error(`Required fields missing: ${missingFields.join(', ')}`);
     }
 
-    // Set required fields
-    this.port = parseInt(envVars.PORT);
+    this.port = parseInt(envVars.PORT, 10);
     this.adminPassword = envVars.ADMIN_PASSWORD;
 
     console.log(`[CONFIG] Port: ${this.port}`);
-    console.log(`[CONFIG] Admin panel enabled with password authentication`);
+    console.log('[CONFIG] Admin panel enabled with password authentication');
 
-    // Clear existing providers
     this.providers.clear();
 
-    // Parse new provider format and maintain backward compatibility
     this.parseProviders(envVars);
     this.parseBackwardCompatibility(envVars);
 
     console.log(`[CONFIG] Found ${this.providers.size} providers configured`);
 
-    // Log each provider
     for (const [providerName, config] of this.providers.entries()) {
       const maskedKeys = config.keys.map(key => this.maskApiKey(key));
-      console.log(`[CONFIG] Provider '${providerName}' (${config.apiType}): ${config.keys.length} keys [${maskedKeys.join(', ')}] → ${config.baseUrl}`);
+      console.log(`[CONFIG] Provider '${providerName}' (${config.apiType}): ${config.keys.length} keys [${maskedKeys.join(', ')}] -> ${config.baseUrl}`);
     }
 
     if (this.providers.size === 0) {
@@ -91,7 +132,7 @@ class Config {
 
       const key = trimmedLine.substring(0, equalIndex).trim();
       const value = trimmedLine.substring(equalIndex + 1).trim();
-      
+
       envVars[key] = value;
     }
 
@@ -109,10 +150,6 @@ class Config {
       .filter(key => key.length > 0);
   }
 
-  /**
-   * Parse API keys with disabled state. Keys prefixed with ~ are disabled.
-   * Returns { allKeys: [{key, disabled}], enabledKeys: [key] }
-   */
   parseApiKeysWithState(keysString) {
     if (!keysString) {
       return { allKeys: [], enabledKeys: [] };
@@ -123,7 +160,9 @@ class Config {
 
     keysString.split(',').forEach(raw => {
       const trimmed = raw.trim();
-      if (trimmed.length === 0) return;
+      if (trimmed.length === 0) {
+        return;
+      }
 
       if (trimmed.startsWith('~')) {
         const key = trimmed.substring(1);
@@ -140,10 +179,17 @@ class Config {
   }
 
   parseProviders(envVars) {
-    // Parse {API_TYPE}_{PROVIDER}_API_KEYS, {API_TYPE}_{PROVIDER}_BASE_URL, and {API_TYPE}_{PROVIDER}_ACCESS_KEY format
     const providerConfigs = new Map();
 
-    const defaultConfig = () => ({ apiType: null, keys: [], allKeys: [], baseUrl: null, accessKey: null, defaultModel: null, disabled: false });
+    const defaultConfig = () => ({
+      apiType: null,
+      keys: [],
+      allKeys: [],
+      baseUrl: null,
+      accessKey: null,
+      defaultModel: null,
+      disabled: false
+    });
 
     for (const [key, value] of Object.entries(envVars)) {
       if (key.endsWith('_API_KEYS') && value) {
@@ -156,7 +202,6 @@ class Config {
             providerConfigs.set(provider, defaultConfig());
           }
 
-          // Parse keys with disabled state (~ prefix)
           const { allKeys, enabledKeys } = this.parseApiKeysWithState(value);
           providerConfigs.get(provider).keys = enabledKeys;
           providerConfigs.get(provider).allKeys = allKeys;
@@ -213,10 +258,8 @@ class Config {
       }
     }
 
-    // Add valid providers to the main providers map
     for (const [provider, config] of providerConfigs.entries()) {
       if (config.allKeys.length > 0) {
-        // Set default base URLs if not specified
         if (!config.baseUrl) {
           if (config.apiType === 'openai') {
             config.baseUrl = 'https://api.openai.com/v1';
@@ -231,18 +274,20 @@ class Config {
   }
 
   parseBackwardCompatibility(envVars) {
-    // Maintain backward compatibility with old format
     this.geminiApiKeys = this.parseApiKeys(envVars.GEMINI_API_KEYS);
     this.openaiApiKeys = this.parseApiKeys(envVars.OPENAI_API_KEYS);
     this.baseUrl = (envVars.BASE_URL && envVars.BASE_URL.trim()) ? envVars.BASE_URL.trim() : null;
 
-    // If old format is used, create default providers
     if (this.openaiApiKeys.length > 0) {
       const baseUrl = this.baseUrl || 'https://api.openai.com/v1';
       this.providers.set('openai', {
         apiType: 'openai',
         keys: this.openaiApiKeys,
-        baseUrl: baseUrl
+        allKeys: this.openaiApiKeys.map(key => ({ key, disabled: false })),
+        baseUrl,
+        accessKey: null,
+        defaultModel: null,
+        disabled: false
       });
     }
 
@@ -251,7 +296,11 @@ class Config {
       this.providers.set('gemini', {
         apiType: 'gemini',
         keys: this.geminiApiKeys,
-        baseUrl: baseUrl
+        allKeys: this.geminiApiKeys.map(key => ({ key, disabled: false })),
+        baseUrl,
+        accessKey: null,
+        defaultModel: null,
+        disabled: false
       });
     }
   }
@@ -297,11 +346,13 @@ class Config {
   }
 
   maskApiKey(key) {
-    if (!key || key.length < 8) return '***';
+    if (!key || key.length < 8) {
+      return '***';
+    }
+
     return key.substring(0, 4) + '...' + key.substring(key.length - 4);
   }
 
-  // New provider methods
   getProviders() {
     return this.providers;
   }
@@ -324,7 +375,6 @@ class Config {
     return result;
   }
 
-  // Backward compatibility - these methods now aggregate across all providers
   getAllGeminiKeys() {
     const keys = [];
     for (const [, config] of this.providers.entries()) {
