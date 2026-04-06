@@ -1097,6 +1097,33 @@
             }
         }
         
+        const ROTATO_ADMIN_SESSION_KEY = 'rotatoAdminSession';
+
+        function getStoredAdminSessionToken() {
+            try {
+                return sessionStorage.getItem(ROTATO_ADMIN_SESSION_KEY) || '';
+            } catch {
+                return '';
+            }
+        }
+
+        function setStoredAdminSessionToken(token) {
+            try {
+                if (token) sessionStorage.setItem(ROTATO_ADMIN_SESSION_KEY, token);
+                else sessionStorage.removeItem(ROTATO_ADMIN_SESSION_KEY);
+            } catch {
+                /* ignore */
+            }
+        }
+
+        /** Cookie + optional X-Admin-Session (needed when browsers or proxies do not attach cookies to API calls). */
+        function adminFetch(input, init = {}) {
+            const headers = new Headers(init.headers || {});
+            const t = getStoredAdminSessionToken();
+            if (t) headers.set('X-Admin-Session', t);
+            return fetch(input, { credentials: 'include', ...init, headers });
+        }
+
         // Login functionality
         async function login() {
             const password = document.getElementById('password').value;
@@ -1112,6 +1139,7 @@
                 const data = await response.json();
 
                 if (response.ok) {
+                    if (data.sessionToken) setStoredAdminSessionToken(data.sessionToken);
                     document.getElementById('loginForm').classList.add('hidden');
                     document.getElementById('adminPanel').classList.remove('hidden');
                     loadEnvVars();
@@ -1180,13 +1208,15 @@
         
         async function logout() {
             try {
-                await fetch('/admin/logout', {
+                await adminFetch('/admin/logout', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
             } catch (error) {
                 console.log('Logout request failed, but continuing with local logout');
             }
+
+            setStoredAdminSessionToken('');
             
             document.getElementById('loginForm').classList.remove('hidden');
             document.getElementById('adminPanel').classList.add('hidden');
@@ -1197,8 +1227,8 @@
         async function loadEnvVars() {
             try {
                 const [envResponse, usageResponse] = await Promise.all([
-                    fetch('/admin/api/env'),
-                    fetch('/admin/api/key-usage').catch(() => ({ ok: false }))
+                    adminFetch('/admin/api/env'),
+                    adminFetch('/admin/api/key-usage').catch(() => ({ ok: false }))
                 ]);
                 envVars = await envResponse.json();
                 if (usageResponse.ok) {
@@ -1705,7 +1735,7 @@
 
         async function toggleKey(apiType, providerName, keyIndex, disabled) {
             try {
-                const response = await fetch('/admin/api/toggle-key', {
+                const response = await adminFetch('/admin/api/toggle-key', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ apiType, providerName, keyIndex, disabled })
@@ -1724,7 +1754,7 @@
 
         async function toggleProvider(apiType, providerName, disabled) {
             try {
-                const response = await fetch('/admin/api/toggle-provider', {
+                const response = await adminFetch('/admin/api/toggle-provider', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ apiType, providerName, disabled })
@@ -1757,7 +1787,7 @@
             const cleanKeys = rawKeys.map(k => k.startsWith('~') ? k.substring(1) : k);
 
             try {
-                const response = await fetch('/admin/api/reorder-keys', {
+                const response = await adminFetch('/admin/api/reorder-keys', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ apiType, providerName, keys: cleanKeys })
@@ -1955,7 +1985,7 @@
                 
                 try {
                     showInfoToast(`Testing API key ${i + 1}/${apiKeys.length}: ${maskedKey}...`);
-                    const response = await fetch('/admin/api/test', {
+                    const response = await adminFetch('/admin/api/test', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
@@ -2006,7 +2036,7 @@
             }
             
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -2135,7 +2165,7 @@
             showInfoToast(`Testing new API key ${maskedKey}...`);
             
             try {
-                const response = await fetch('/admin/api/test', {
+                const response = await adminFetch('/admin/api/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -2259,7 +2289,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
         async function exportConfiguration() {
             try {
                 // Fetch the .env file content from the server
-                const response = await fetch('/admin/api/env-file');
+                const response = await adminFetch('/admin/api/env-file');
                 if (!response.ok) {
                     throw new Error('Failed to fetch .env file');
                 }
@@ -2296,7 +2326,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             });
 
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -2469,7 +2499,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             }
 
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -2514,7 +2544,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             }
 
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -2553,7 +2583,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             delete envVars[accessKeyVar];
 
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -2606,7 +2636,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             delete envVars[modelVar];
 
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -2680,7 +2710,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             }
 
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -2735,7 +2765,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             showInfoToast(`Testing API key ${maskedKey}...`);
             
             try {
-                const response = await fetch('/admin/api/test', {
+                const response = await adminFetch('/admin/api/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -2957,7 +2987,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
                 }
 
                 // Save to server
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -3009,7 +3039,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             }
 
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -3053,7 +3083,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             showInfoToast(`Testing API key ${maskedKey} before saving...`);
             
             try {
-                const testResponse = await fetch('/admin/api/test', {
+                const testResponse = await adminFetch('/admin/api/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -3083,7 +3113,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             envVars[keysVar] = existingKeys.filter(k => k.trim()).join(',');
             
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -3126,7 +3156,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             showInfoToast(`Testing API key ${maskedKey} for provider '${providerName}'...`);
             
             try {
-                const response = await fetch('/admin/api/test', {
+                const response = await adminFetch('/admin/api/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -3164,7 +3194,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
         
         async function saveEnvVars() {
             try {
-                const response = await fetch('/admin/api/env', {
+                const response = await adminFetch('/admin/api/env', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(envVars)
@@ -3193,7 +3223,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             resultDiv.innerHTML = '<div class="bg-blue-50 border border-blue-200 text-blue-800 px-3 py-2 rounded-md text-sm mt-3">Testing...</div>';
             
             try {
-                const response = await fetch('/admin/api/test', {
+                const response = await adminFetch('/admin/api/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -3241,7 +3271,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
         
         async function refreshLogs() {
             try {
-                const response = await fetch('/admin/api/logs');
+                const response = await adminFetch('/admin/api/logs');
                 const data = await response.json();
                 
                 const logsContainer = document.getElementById('logsContainer');
@@ -3368,7 +3398,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
 
         async function viewResponse(testId) {
             try {
-                const response = await fetch(`/admin/api/response/${testId}`);
+                const response = await adminFetch(`/admin/api/response/${testId}`);
                 if (!response.ok) {
                     alert('Response data not found');
                     return;
@@ -3532,7 +3562,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
             await checkLoginRateLimit();
 
             try {
-                const response = await fetch('/admin/api/auth');
+                const response = await adminFetch('/admin/api/auth');
                 const data = await response.json();
 
                 if (data.authenticated) {
@@ -3549,7 +3579,7 @@ ${googApiKeyHeader}  -H "Content-Type: application/json" \\
 
         async function checkLoginRateLimit() {
             try {
-                const response = await fetch('/admin/api/login-status');
+                const response = await adminFetch('/admin/api/login-status');
                 const data = await response.json();
 
                 if (data.blocked) {

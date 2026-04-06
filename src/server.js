@@ -66,7 +66,7 @@ class ProxyServer {
     // Set CORS headers for all responses - accept all origins
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Session, X-Requested-With, Accept, Origin');
     res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
 
     // Handle preflight OPTIONS requests
@@ -699,7 +699,7 @@ class ProxyServer {
       this.clearPersistedAdminSession();
       res.writeHead(200, { 
         'Content-Type': 'application/json',
-        'Set-Cookie': 'adminSession=; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/admin'
+        'Set-Cookie': 'adminSession=; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/'
       });
       res.end(JSON.stringify({ success: true }));
       return;
@@ -800,11 +800,21 @@ class ProxyServer {
     return cookies;
   }
   
-  isAdminAuthenticated(req) {
+  getAdminSessionFromRequest(req) {
     const cookies = this.parseCookies(req.headers.cookie);
     const cookieToken = cookies.adminSession;
+    const headerToken = req.headers['x-admin-session'];
+    return { cookieToken, headerToken: headerToken && String(headerToken).trim() };
+  }
+
+  isAdminAuthenticated(req) {
     const stored = this.readPersistedAdminSession();
-    return this.sessionTokensMatch(cookieToken, stored);
+    if (!stored) return false;
+    const { cookieToken, headerToken } = this.getAdminSessionFromRequest(req);
+    return (
+      this.sessionTokensMatch(cookieToken, stored) ||
+      this.sessionTokensMatch(headerToken, stored)
+    );
   }
 
   async handleAdminLogin(req, res, body) {
@@ -843,9 +853,9 @@ class ProxyServer {
         const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toUTCString();
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Set-Cookie': `adminSession=${sessionToken}; HttpOnly; Expires=${expires}; Path=/admin`
+          'Set-Cookie': `adminSession=${sessionToken}; HttpOnly; SameSite=Lax; Expires=${expires}; Path=/`
         });
-        res.end(JSON.stringify({ success: true }));
+        res.end(JSON.stringify({ success: true, sessionToken }));
       } else {
         // Failed login - increment counter
         this.failedLoginAttempts++;
